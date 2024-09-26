@@ -55,12 +55,20 @@ def load_and_merge_currency_data(directory):
     for file in files:
         year = os.path.basename(file).split('_')[-1].split('.')[0]
         data = pd.read_csv(file)
+        
+        # Ensure proper date parsing
+        try:
+            data['Date'] = pd.to_datetime(data['Date'], format='%d-%b-%y')  # Assuming format like '3-Jan-12'
+        except Exception as e:
+            print(f"Error parsing date in file {file}: {e}")
+            continue  # Skip files with date errors
+        
         data['Year'] = year  # Add year column
         all_data.append(data)
     
     merged_data = pd.concat(all_data, ignore_index=True)
-    merged_data['Date'] = pd.to_datetime(merged_data['Date'])  # Convert 'Date' to datetime
     return merged_data
+
 
 # Function to plot currency data
 def plot_currency_data(data, currency_from, currency_to, time_frame):
@@ -79,6 +87,31 @@ def plot_currency_data(data, currency_from, currency_to, time_frame):
         resampled_data = data[[currency_from, currency_to]].resample('Y').mean()
 
     st.line_chart(resampled_data)
+
+# Function to calculate volatility with better error handling
+def calculate_volatility(data, currency_from, currency_to, time_frame):
+    # Check if 'Date' exists in the data
+    if 'Date' not in data.columns:
+        st.warning("The data does not contain a 'Date' column.")
+        return None
+
+    data['Date'] = pd.to_datetime(data['Date'])  # Ensure 'Date' column is datetime
+    data.set_index('Date', inplace=True)
+
+    if time_frame == "Daily":
+        returns = data[[currency_from, currency_to]].pct_change()
+    elif time_frame == "Weekly":
+        returns = data[[currency_from, currency_to]].resample('W').ffill().pct_change()
+    elif time_frame == "Monthly":
+        returns = data[[currency_from, currency_to]].resample('M').ffill().pct_change()
+
+    if returns.empty:
+        st.warning(f"No data available for the selected time frame: {time_frame}")
+        return None
+
+    # Calculate volatility (standard deviation of returns)
+    volatility = returns.std() * 100  # Annualize if needed, here we keep it simple
+    return volatility
 
 # Configure Streamlit interface
 st.set_page_config(page_title="Currency Exchange Tracker", layout="wide")
@@ -107,13 +140,40 @@ if selected_year != 'All Years':
 else:
     selected_data = merged_data
 
+# Add month range selection only if a particular year is chosen
+if selected_year != 'All Years':
+    st.header("Select Date Range")
+
+    # Extract available months in the selected data
+    min_date = selected_data['Date'].min()
+    max_date = selected_data['Date'].max()
+
+    # Extract the month names for the slider
+    available_months = pd.date_range(start=min_date, end=max_date, freq='M').strftime('%B').tolist()
+
+    start_month, end_month = st.select_slider(
+        'Select Month Range:',
+        options=available_months,
+        value=(available_months[0], available_months[-1])  # Default to first and last months
+    )
+
+    # Convert month names back to datetime for filtering
+    start_date = pd.to_datetime(f"{selected_year} {start_month} 01")
+    end_date = pd.to_datetime(f"{selected_year} {end_month} 01") + pd.offsets.MonthEnd()
+
+    # Filter data within the selected range
+    selected_data = selected_data[(selected_data['Date'] >= start_date) & (selected_data['Date'] <= end_date)]
+
 # Exchange rate calculation display
 if 'Date' in selected_data.columns and currency_from in selected_data.columns and currency_to in selected_data.columns:
     current_exchange = (selected_data[currency_to].iloc[-1] / selected_data[currency_from].iloc[-1]) if not selected_data[currency_from].isna().all() else None
 else:
     current_exchange = None
 
-st.markdown(f"**Current Exchange Rate:** 1 {currency_from} = {current_exchange:.4f} {currency_to}" if current_exchange else "Exchange rate information is not available.")
+if current_exchange is not None:
+    st.markdown(f"**Current Exchange Rate:** 1 {currency_from} = {current_exchange:.4f} {currency_to}")
+else:
+    st.markdown("Exchange rate information is not available.")
 
 # Custom Currency Basket Feature
 st.header("Create Your Custom Currency Basket")
@@ -137,5 +197,15 @@ time_frame = st.radio("Select Time Frame for Chart Display", time_frame_options)
 if time_frame:
     plot_currency_data(selected_data, currency_from, currency_to, time_frame)
 
-st.markdown("<hr>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center;'>Developed by Team 4</p>", unsafe_allow_html=True)
+# Sidebar for volatility selection
+st.sidebar.header("Volatility Analysis")
+vol_currency_from = st.sidebar.selectbox('Select From Currency for Volatility:', available_currencies)
+vol_currency_to = st.sidebar.selectbox('Select To Currency for Volatility:', available_currencies)
+vol_time_frame = st.sidebar.selectbox('Select Time Frame for Volatility:', ["Daily", "Weekly", "Monthly"])
+
+if st.sidebar.button("Calculate Volatility"):
+    volatility = calculate_volatility(selected_data, vol_currency_from, vol_currency_to, vol_time_frame)
+    if volatility is not None and vol_currency_to in volatility:
+        st.success(f"Volatility of {vol_currency_from} to {vol_currency_to} over the selected period: {volatility[vol_currency_to]:.2f}%")
+    else:
+        st.warning(f"Volatility data for {vol_currency_to} is not available.")
