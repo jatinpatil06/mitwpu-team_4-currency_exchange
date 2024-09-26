@@ -81,3 +81,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - Exchange rate data provided by [ExchangeRate-API](https://www.exchangerate-api.com/)
 - Built with [Streamlit](https://streamlit.io/)
+
+#screenshots
+![alt text](<Screenshot 2024-09-26 112548.png>) ![alt text](<Screenshot 2024-09-26 112348.png>) ![alt text](<Screenshot 2024-09-26 112415.png>) ![alt text](<Screenshot 2024-09-26 112507.png>) ![alt text](<Screenshot 2024-09-26 112524.png>)
